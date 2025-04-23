@@ -1101,7 +1101,7 @@ export default function ThreadPage({ params }: { params: Promise<ThreadParams> }
         const minutesUsed = totalSeconds / 60;
         
         // The free plan has a 10 minute limit as defined in backend/utils/billing.py
-        const FREE_PLAN_LIMIT_MINUTES = 10;
+        const FREE_PLAN_LIMIT_MINUTES = 100000000000; // unlimited
         const FREE_PLAN_LIMIT_HOURS = FREE_PLAN_LIMIT_MINUTES / 60;
         
         // Show alert if over limit

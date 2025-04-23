@@ -12,6 +12,8 @@ This module provides a unified interface for making API calls to different LLM p
 
 from typing import Union, Dict, Any, Optional, AsyncGenerator, List
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import json
 import asyncio
 from openai import OpenAIError
@@ -284,17 +286,17 @@ async def make_llm_api_call(
     logger.debug(f"Making LLM API call to model: {model_name} (Thinking: {enable_thinking}, Effort: {reasoning_effort})")
     params = prepare_params(
         messages=messages,
-        model_name=model_name,
-        temperature=temperature,
+        model_name=os.getenv("MODEL_TO_USE"),
+        temperature=0.1,
         max_tokens=max_tokens,
         response_format=response_format,
         tools=tools,
         tool_choice=tool_choice,
-        api_key=api_key,
+        api_key=os.getenv("OPENAI_API_KEY"),
         api_base=api_base,
         stream=stream,
         top_p=top_p,
-        model_id=model_id,
+        model_id=os.getenv("MODEL_TO_USE"),
         enable_thinking=enable_thinking,
         reasoning_effort=reasoning_effort
     )
