@@ -108,7 +108,7 @@ async def log_requests_middleware(request: Request, call_next):
         raise
 
 # Define allowed origins based on environment
-allowed_origins = ["https://www.suna.so", "https://suna.so", "https://staging.suna.so", "http://localhost:3000"]
+allowed_origins = ["https://www.suna.so", "https://suna.so", "https://staging.suna.so", "http://localhost:3000", "https://suna.luwux.fun"]
 
 # Add staging-specific origins
 if config.ENV_MODE == EnvMode.STAGING:
