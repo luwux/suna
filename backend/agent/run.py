@@ -69,7 +69,7 @@ async def run_agent(
     thread_manager.add_tool(WebSearchTool)
         
     # Add data providers tool if RapidAPI key is available
-    if config.RAPID_API_KEY:
+    if hasattr(config, 'RAPID_API_KEY') and config.RAPID_API_KEY:
         thread_manager.add_tool(DataProvidersTool)
 
     system_message = { "role": "system", "content": get_system_prompt() }
