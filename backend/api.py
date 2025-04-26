@@ -144,9 +144,11 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    
-    workers = 2
-    
+
+    # Use workers=1 in local development mode for easier debugging
+    # Use workers=2 in production for better performance
+    workers = 1 if config.ENV_MODE == EnvMode.LOCAL else 2
+
     logger.info(f"Starting server on 0.0.0.0:8000 with {workers} workers")
     uvicorn.run(
         "api:app", 

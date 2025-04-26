@@ -41,10 +41,12 @@ class LLMRetryError(LLMError):
 
 def setup_api_keys() -> None:
     """Set up API keys from environment variables."""
-    providers = ['OPENAI', 'ANTHROPIC', 'GROQ', 'OPENROUTER']
+    providers = ["OPENAI", "ANTHROPIC", "GROQ", "OPENROUTER", "GEMINI"]
     for provider in providers:
         key = getattr(config, f'{provider}_API_KEY')
         if key:
+            # Set the environment variable for LiteLLM to use
+            os.environ[f"{provider}_API_KEY"] = key
             logger.debug(f"API key set for provider: {provider}")
         else:
             logger.warning(f"No API key found for provider: {provider}")
@@ -156,8 +158,48 @@ def prepare_params(
         logger.debug(f"Preparing AWS Bedrock parameters for model: {model_name}")
         
         if not model_id and "anthropic.claude-3-7-sonnet" in model_name:
-            params["model_id"] = "arn:aws:bedrock:us-west-2:935064898258:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
-            logger.debug(f"Auto-set model_id for Claude 3.7 Sonnet: {params['model_id']}")
+            params["model_id"] = (
+                "arn:aws:bedrock:us-west-2:935064898258:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+            )
+            logger.debug(
+                f'Auto-set model_id for Claude 3.7 Sonnet: {params["model_id"]}'
+            )
+
+    # Apply context caching for Gemini models
+    if "gemini" in model_name.lower():
+        messages = params["messages"]  # Direct reference, modification affects params
+
+        # Ensure messages is a list
+        if not isinstance(messages, list):
+            return params  # Return early if messages format is unexpected
+
+        # 只对第一条系统消息应用缓存控制
+        cache_control_applied = 0
+        if messages and messages[0].get("role") == "system":
+            message = messages[0]
+            content = message.get("content")
+
+            if isinstance(content, str):
+                # Convert string content to structured content with cache_control
+                message["content"] = [
+                    {
+                        "type": "text",
+                        "text": content,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+                cache_control_applied = 1
+            elif isinstance(content, list):
+                # If content is already a list, add cache_control to text items
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        if "cache_control" not in item:
+                            item["cache_control"] = {"type": "ephemeral"}
+                            cache_control_applied += 1
+
+        logger.info(
+            f"Gemini context caching applied to {cache_control_applied} message parts (only first system message)"
+        )
 
     # Apply Anthropic prompt caching (minimal implementation)
     # Check model name *after* potential modifications (like adding bedrock/ prefix)
@@ -165,78 +207,63 @@ def prepare_params(
     if "claude" in effective_model_name.lower() or "anthropic" in effective_model_name.lower():
         messages = params["messages"] # Direct reference, modification affects params
 
-        # Ensure messages is a list
-        if not isinstance(messages, list):
-            return params # Return early if messages format is unexpected
-
-        # 1. Process the first message if it's a system prompt with string content
+        # 只对第一条系统消息应用缓存控制
+        cache_control_applied = 0
         if messages and messages[0].get("role") == "system":
             content = messages[0].get("content")
             if isinstance(content, str):
                 # Wrap the string content in the required list structure
                 messages[0]["content"] = [
-                    {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+                    {
+                        "type": "text",
+                        "text": content,
+                        "cache_control": {"type": "ephemeral"},
+                    }
                 ]
+                cache_control_applied = 1
             elif isinstance(content, list):
-                 # If content is already a list, check if the first text block needs cache_control
-                 for item in content:
-                     if isinstance(item, dict) and item.get("type") == "text":
-                         if "cache_control" not in item:
-                             item["cache_control"] = {"type": "ephemeral"}
-                             break # Apply to the first text block only for system prompt
-
-        # 2. Find and process relevant user and assistant messages
-        last_user_idx = -1
-        second_last_user_idx = -1
-        last_assistant_idx = -1
-
-        for i in range(len(messages) - 1, -1, -1):
-            role = messages[i].get("role")
-            if role == "user":
-                if last_user_idx == -1:
-                    last_user_idx = i
-                elif second_last_user_idx == -1:
-                    second_last_user_idx = i
-            elif role == "assistant":
-                if last_assistant_idx == -1:
-                    last_assistant_idx = i
-
-            # Stop searching if we've found all needed messages
-            if last_user_idx != -1 and second_last_user_idx != -1 and last_assistant_idx != -1:
-                 break
-
-        # Helper function to apply cache control
-        def apply_cache_control(message_idx: int, message_role: str):
-            if message_idx == -1:
-                return
-
-            message = messages[message_idx]
-            content = message.get("content")
-
-            if isinstance(content, str):
-                message["content"] = [
-                    {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
-                ]
-            elif isinstance(content, list):
+                # If content is already a list, check if text blocks need cache_control
                 for item in content:
                     if isinstance(item, dict) and item.get("type") == "text":
                         if "cache_control" not in item:
-                           item["cache_control"] = {"type": "ephemeral"}
+                            item["cache_control"] = {"type": "ephemeral"}
+                            cache_control_applied += 1
 
-        # Apply cache control to the identified messages
-        apply_cache_control(last_user_idx, "last user")
-        apply_cache_control(second_last_user_idx, "second last user")
-        apply_cache_control(last_assistant_idx, "last assistant")
+        if cache_control_applied > 0:
+            logger.info(f"Claude context caching applied to system message")
 
     # Add reasoning_effort for Anthropic models if enabled
     use_thinking = enable_thinking if enable_thinking is not None else False
-    is_anthropic = "anthropic" in effective_model_name.lower() or "claude" in effective_model_name.lower()
+    is_anthropic = (
+        "anthropic" in effective_model_name.lower()
+        or "claude" in effective_model_name.lower()
+    )
+    is_gemini = "gemini" in effective_model_name.lower()
 
     if is_anthropic and use_thinking:
         effort_level = reasoning_effort if reasoning_effort else 'low'
         params["reasoning_effort"] = effort_level
-        params["temperature"] = 1.0 # Required by Anthropic when reasoning_effort is used
-        logger.info(f"Anthropic thinking enabled with reasoning_effort='{effort_level}'")
+        params["temperature"] = (
+            1.0  # Required by Anthropic when reasoning_effort is used
+        )
+        logger.info(
+            f"Anthropic thinking enabled with reasoning_effort='{effort_level}'"
+        )
+    elif is_gemini and use_thinking:
+        # Map reasoning_effort to Gemini's thinking parameter
+        effort_level = reasoning_effort if reasoning_effort else "low"
+        budget_tokens = 1024  # default for 'low'
+
+        if effort_level == "medium":
+            budget_tokens = 2048
+        elif effort_level == "high":
+            budget_tokens = 4096
+
+        # Add thinking parameter to Gemini request
+        params["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
+        logger.info(
+            f"Gemini thinking enabled with budget_tokens={budget_tokens} (from effort='{effort_level}')"
+        )
 
     return params
 
@@ -250,7 +277,7 @@ async def make_llm_api_call(
     tool_choice: str = "auto",
     api_key: Optional[str] = None,
     api_base: Optional[str] = None,
-    stream: bool = False,
+    stream: bool = True,
     top_p: Optional[float] = None,
     model_id: Optional[str] = None,
     enable_thinking: Optional[bool] = False,
@@ -282,23 +309,26 @@ async def make_llm_api_call(
         LLMRetryError: If API call fails after retries
         LLMError: For other API-related errors
     """
-    # debug <timestamp>.json messages 
-    logger.debug(f"Making LLM API call to model: {model_name} (Thinking: {enable_thinking}, Effort: {reasoning_effort})")
+    # debug <timestamp>.json messages
+    effective_model = config.MODEL_TO_USE if model_name is None else model_name
+    logger.info(
+        f"Making LLM API call to model: {effective_model} (Thinking: {enable_thinking}, Effort: {reasoning_effort})"
+    )
     params = prepare_params(
         messages=messages,
-        model_name=os.getenv("MODEL_TO_USE"),
-        temperature=0.1,
+        model_name=effective_model,
+        temperature=temperature,
         max_tokens=max_tokens,
         response_format=response_format,
         tools=tools,
         tool_choice=tool_choice,
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=api_key,  # Allow API key override
         api_base=api_base,
         stream=stream,
         top_p=top_p,
-        model_id=os.getenv("MODEL_TO_USE"),
+        model_id=model_id,
         enable_thinking=enable_thinking,
-        reasoning_effort=reasoning_effort
+        reasoning_effort=reasoning_effort,
     )
     last_error = None
     for attempt in range(MAX_RETRIES):
@@ -396,12 +426,86 @@ async def test_bedrock():
         print(f"Error testing Bedrock: {str(e)}")
         return False
 
+
+async def test_gemini():
+    """Test the Gemini integration with context caching."""
+    # Create a large system message to satisfy the caching requirement (min 4096 tokens)
+    large_context = (
+        "You are a helpful AI assistant that specializes in providing concise responses. "
+        * 600
+    )
+
+    test_messages = [
+        {"role": "system", "content": large_context},
+        {
+            "role": "user",
+            "content": "Hello, can you write a short paragraph about Paris? This is just a test of the context caching feature.",
+        },
+    ]
+
+    try:
+        # First call - should be uncached
+        logger.info("Making first call to Gemini (uncached)")
+        logger.info(f"System message length: {len(large_context)} characters")
+        response1 = await make_llm_api_call(
+            model_name="gemini/gemini-2.5-pro-latest",
+            messages=test_messages,
+            temperature=0.7,
+            enable_thinking=True,
+            reasoning_effort="low",
+        )
+        print(f"First response: {response1.choices[0].message.content}")
+        print(f"First usage: {response1.usage}")
+
+        # Second call - should use cache
+        logger.info("Making second call to Gemini (should use cache)")
+        response2 = await make_llm_api_call(
+            model_name="gemini/gemini-2.5-pro-latest",
+            messages=test_messages,
+            temperature=0.7,
+            enable_thinking=True,
+            reasoning_effort="low",
+        )
+        print(f"Second response: {response2.choices[0].message.content}")
+        print(f"Second usage: {response2.usage}")
+
+        # Compare token usage
+        if response1.usage.prompt_tokens > response2.usage.prompt_tokens:
+            print(
+                f"✅ Context caching worked! First call used {response1.usage.prompt_tokens} prompt tokens, second call used {response2.usage.prompt_tokens} prompt tokens"
+            )
+        else:
+            print(
+                f"❓ Context caching might not be working as expected. First: {response1.usage.prompt_tokens} tokens, Second: {response2.usage.prompt_tokens} tokens"
+            )
+
+        return True
+    except Exception as e:
+        print(f"Error testing Gemini: {str(e)}")
+        traceback.print_exc()
+        return False
+
+
 if __name__ == "__main__":
     import asyncio
-        
-    test_success = asyncio.run(test_bedrock())
-    
-    if test_success:
-        print("\n✅ integration test completed successfully!")
+
+    test_to_run = "gemini"  # Change this to run a different test
+
+    if test_to_run == "bedrock":
+        test_success = asyncio.run(test_bedrock())
+        result_name = "Bedrock"
+    elif test_to_run == "openrouter":
+        test_success = asyncio.run(test_openrouter())
+        result_name = "OpenRouter"
+    elif test_to_run == "gemini":
+        test_success = asyncio.run(test_gemini())
+        result_name = "Gemini"
     else:
-        print("\n❌ Bedrock integration test failed!")
+        print(f"Unknown test: {test_to_run}")
+        test_success = False
+        result_name = test_to_run
+
+    if test_success:
+        print(f"\n✅ {result_name} integration test completed successfully!")
+    else:
+        print(f"\n❌ {result_name} integration test failed!")

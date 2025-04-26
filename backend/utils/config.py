@@ -46,16 +46,17 @@ class Configuration:
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_API_BASE: Optional[str] = "https://openrouter.ai/api/v1"
     OR_SITE_URL: Optional[str] = None
-    OR_APP_NAME: Optional[str] = "Suna.so"    
-    
+    OR_APP_NAME: Optional[str] = "Suna.so"
+    GEMINI_API_KEY: Optional[str] = None
+
     # AWS Bedrock credentials
     AWS_ACCESS_KEY_ID: Optional[str] = None
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
     AWS_REGION_NAME: Optional[str] = None
     
     # Model configuration
-    MODEL_TO_USE: Optional[str] = "anthropic/claude-3-7-sonnet-latest"
-    
+    MODEL_TO_USE: Optional[str] = "gemini/gemini-2.5-pro-preview-03-25"
+
     # Supabase configuration
     SUPABASE_URL: str
     SUPABASE_ANON_KEY: str

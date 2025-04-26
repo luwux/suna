@@ -31,13 +31,21 @@ async def run_agent(
     thread_manager: Optional[ThreadManager] = None,
     native_max_auto_continues: int = 25,
     max_iterations: int = 150,
-    model_name: str = "anthropic/claude-3-7-sonnet-latest",
+    model_name: str = None,
     enable_thinking: Optional[bool] = False,
     reasoning_effort: Optional[str] = 'low',
     enable_context_manager: bool = True
 ):
     """Run the development agent with specified configuration."""
-    
+
+    # Import here to avoid circular imports
+    from utils.config import config
+
+    # Use model from config if not specified
+    if model_name is None:
+        model_name = config.MODEL_TO_USE
+        logger.debug(f"Using default model from config: {model_name}")
+
     thread_manager = ThreadManager()
 
     client = await thread_manager.db.client

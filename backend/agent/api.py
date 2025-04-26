@@ -17,6 +17,7 @@ from services import redis
 from agent.run import run_agent
 from utils.auth_utils import get_current_user_id, get_user_id_from_stream_auth, verify_thread_access
 from utils.logger import logger
+from utils.config import config
 from utils.billing import check_billing_status, get_account_id_from_thread
 from sandbox.sandbox import create_sandbox, get_or_start_sandbox
 from services.llm import make_llm_api_call
@@ -40,7 +41,7 @@ MODEL_NAME_ALIASES = {
 }
 
 class AgentStartRequest(BaseModel):
-    model_name: Optional[str] = "anthropic/claude-3-7-sonnet-latest"
+    model_name: Optional[str] = "gemini-flash-2.5"
     enable_thinking: Optional[bool] = False
     reasoning_effort: Optional[str] = 'low'
     stream: Optional[bool] = True
@@ -355,7 +356,13 @@ async def start_agent(
     if not instance_id:
         raise HTTPException(status_code=500, detail="Agent API not initialized with instance ID")
 
-    logger.info(f"Starting new agent for thread: {thread_id} with config: model={body.model_name}, thinking={body.enable_thinking}, effort={body.reasoning_effort}, stream={body.stream}, context_manager={body.enable_context_manager} (Instance: {instance_id})")
+    # 不再显示前端传入的model_name，而是直接显示将要使用的模型
+    logger.info(
+        f"Starting new agent for thread: {thread_id} with config: thinking={body.enable_thinking}, effort={body.reasoning_effort}, stream={body.stream}, context_manager={body.enable_context_manager} (Instance: {instance_id})"
+    )
+    logger.info(
+        f"Frontend requested model: {body.model_name}, will use server-configured model: {config.MODEL_TO_USE}"
+    )
     client = await db.client
 
     await verify_thread_access(client, thread_id, user_id)
@@ -396,13 +403,23 @@ async def start_agent(
         logger.warning(f"Failed to register agent run in Redis ({instance_key}): {str(e)}")
 
     # Run the agent in the background
+    # Ignore frontend model selection and use the configured model instead
+    logger.info(f"Ignoring frontend model selection: {body.model_name}")
+    resolved_model = config.MODEL_TO_USE
+    logger.info(f"Using server-configured model: {resolved_model}")
+
     task = asyncio.create_task(
         run_agent_background(
-            agent_run_id=agent_run_id, thread_id=thread_id, instance_id=instance_id,
-            project_id=project_id, sandbox=sandbox,
-            model_name=MODEL_NAME_ALIASES.get(body.model_name, body.model_name),
-            enable_thinking=body.enable_thinking, reasoning_effort=body.reasoning_effort,
-            stream=body.stream, enable_context_manager=body.enable_context_manager
+            agent_run_id=agent_run_id,
+            thread_id=thread_id,
+            instance_id=instance_id,
+            project_id=project_id,
+            sandbox=sandbox,
+            model_name=resolved_model,
+            enable_thinking=body.enable_thinking,
+            reasoning_effort=body.reasoning_effort,
+            stream=body.stream,
+            enable_context_manager=body.enable_context_manager,
         )
     )
 
@@ -982,6 +999,11 @@ async def initiate_agent_with_files(
             logger.warning(f"Failed to register agent run in Redis ({instance_key}): {str(e)}")
 
         # Run agent in background
+        # Ignore frontend model selection and use the configured model instead
+        logger.info(f"Ignoring frontend model selection: {model_name}")
+        resolved_model = config.MODEL_TO_USE
+        logger.info(f"Using server-configured model: {resolved_model}")
+
         task = asyncio.create_task(
             run_agent_background(
                 agent_run_id=agent_run_id, thread_id=thread_id, instance_id=instance_id,
