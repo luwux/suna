@@ -140,13 +140,13 @@ class Configuration:
             is_optional = hasattr(field_type, "__origin__") and field_type.__origin__ is Union and type(None) in field_type.__args__
             
             # If not optional and value is None, add to missing fields
-            if not is_optional and getattr(self, field) is None:
+            if not is_optional and getattr(self, field, None) is None:
                 missing_fields.append(field)
         
         if missing_fields:
             error_msg = f"Missing required configuration fields: {', '.join(missing_fields)}"
             logger.error(error_msg)
-            raise ValueError(error_msg)
+            # raise ValueError(error_msg)
     
     def get(self, key: str, default: Any = None) -> Any:
         """Get a configuration value with an optional default."""

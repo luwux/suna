@@ -24,6 +24,7 @@ def initialize():
     redis_host = os.getenv('REDIS_HOST', 'redis')
     redis_port = int(os.getenv('REDIS_PORT', 6379))
     redis_password = os.getenv('REDIS_PASSWORD', '')
+    redis_ssl = os.getenv('REDIS_SSL', 'false').lower()
     
     logger.info(f"Initializing Redis connection to {redis_host}:{redis_port}")
     
@@ -32,6 +33,7 @@ def initialize():
         host=redis_host,
         port=redis_port,
         password=redis_password,
+        ssl=redis_ssl,
         decode_responses=True,
         socket_timeout=5.0,
         socket_connect_timeout=5.0,
